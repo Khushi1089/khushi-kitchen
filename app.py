@@ -4,76 +4,69 @@ import pandas as pd
 # --- APP CONFIG ---
 st.set_page_config(page_title="Cloud K", page_icon="☁️", layout="wide")
 
-# --- CUSTOM CSS FOR THE "BURGER BHAU" LOOK ---
-st.markdown("""
-    <style>
-    .main { background-color: #f5f7f9; }
-    .stMetric { background-color: #ffffff; padding: 20px; border-radius: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
-    .sidebar .sidebar-content { background-image: linear-gradient(#e66465, #9198e5); }
-    </style>
-    """, unsafe_allow_html=True)
+# --- INITIALIZING DATA ---
+# This part makes the app "remember" your changes while you use it
+if 'outlets' not in st.session_state:
+    st.session_state.outlets = {
+        "The Home Plate": {"revenue": 0, "expenses": 0, "stock": 100},
+        "No Cap Burgers": {"revenue": 0, "expenses": 0, "stock": 100},
+        "Pocket Pizzaz": {"revenue": 0, "expenses": 0, "stock": 100},
+        "Witx Sandwitx": {"revenue": 0, "expenses": 0, "stock": 100},
+        "Hello Momos": {"revenue": 0, "expenses": 0, "stock": 100}
+    }
 
-# --- SIDEBAR NAVIGATION ---
-st.sidebar.title("☁️ Cloud K")
-outlet = st.sidebar.selectbox("Select Outlet", ["Andheri West", "Bandra East", "Add New Outlet+"])
-menu = st.sidebar.radio("Navigation", ["Dashboard", "Inventory", "Sales & Revenue", "Profit & Loss"])
+# --- SIDEBAR ---
+st.sidebar.title("☁️ Cloud K Management")
+selected_outlet = st.sidebar.selectbox("Select Outlet", list(st.session_state.outlets.keys()))
+menu = st.sidebar.radio("Go To", ["Live Dashboard", "Manage Inventory", "Log Sales & Expenses"])
 
-# --- MOCK DATA (In a real app, this saves to a database) ---
-if 'inventory' not in st.session_state:
-    st.session_state.inventory = pd.DataFrame([
-        {"Item": "Chicken Patties", "Stock": 800, "Status": "Healthy"},
-        {"Item": "Red Onions", "Stock": 150, "Status": "Low Stock"}
-    ])
+# --- DATA SHORTCUTS ---
+data = st.session_state.outlets[selected_outlet]
 
-# --- 1. DASHBOARD ---
-if menu == "Dashboard":
-    st.title(f"📊 {outlet} Dashboard")
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Total Revenue", "₹341,000", "+12.5%")
-    col2.metric("Total Orders", "940", "+5.2%")
-    col3.metric("Low Stock Items", "2", "-2")
-    col4.metric("Active Outlets", "5")
-
-    st.markdown("### Revenue Trends")
-    chart_data = pd.DataFrame({'Sales': [40000, 50000, 30000, 70000, 60000]}, index=['Mon', 'Tue', 'Wed', 'Thu', 'Fri'])
-    st.bar_chart(chart_data)
-
-# --- 2. INVENTORY ---
-elif menu == "Inventory":
-    st.title("📦 Inventory Management")
+# --- 1. LIVE DASHBOARD (Calculates automatically) ---
+if menu == "Live Dashboard":
+    st.title(f"📊 {selected_outlet} Overview")
     
-    # Add Item Section
-    with st.expander("➕ Add New Stock Item"):
-        new_item = st.text_input("Item Name")
-        qty = st.number_input("Quantity", min_value=0)
-        if st.button("Update Inventory"):
-            st.success(f"Added {qty} {new_item} to {outlet}")
-
-    st.table(st.session_state.inventory)
-
-# --- 3. SALES & REVENUE ---
-elif menu == "Sales & Revenue":
-    st.title("💰 Sales Tracker")
-    c1, c2 = st.columns(2)
-    with c1:
-        item_sold = st.selectbox("Item Sold", ["Burger", "Pizza", "Chai"])
-        amt = st.number_input("Sale Amount (₹)")
-    with c2:
-        date = st.date_input("Transaction Date")
-        if st.button("Log Sale"):
-            st.success(f"Sale of ₹{amt} recorded for {outlet}")
-
-# --- 4. PROFIT & LOSS ---
-elif menu == "Profit & Loss":
-    st.title("📈 Profit & Loss Statement")
-    revenue = 341000
-    expenses = st.number_input("Total Expenses (Rent, Salary, Raw Materials)", value=200000)
-    profit = revenue - expenses
+    # Automatic Math
+    profit = data['revenue'] - data['expenses']
     
-    st.metric("Net Profit", f"₹{profit}", delta_color="normal")
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Total Revenue", f"₹{data['revenue']}")
+    col2.metric("Total Expenses", f"₹{data['expenses']}")
+    col3.metric("Net Profit/Loss", f"₹{profit}", delta=profit)
+
+    st.progress(max(0, min(data['stock']/100, 1.0)), text=f"Inventory Level: {data['stock']}%")
+
+# --- 2. MANAGE INVENTORY ---
+elif menu == "Manage Inventory":
+    st.title("📦 Inventory Control")
+    st.write(f"Current Stock for {selected_outlet}: **{data['stock']} units**")
     
-    if profit > 0:
-        st.balloons()
-        st.write("Excellent! Your outlet is in profit.")
-    else:
-        st.error("Loss detected. Check your inventory wastage!")
+    add_stock = st.number_input("Refill Stock (Units)", min_value=0)
+    if st.button("Update Stock"):
+        st.session_state.outlets[selected_outlet]['stock'] += add_stock
+        st.success("Inventory updated!")
+        st.rerun()
+
+# --- 3. LOG SALES & EXPENSES ---
+elif menu == "Log Sales & Expenses":
+    st.title("📝 Data Entry")
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        st.subheader("Add Sale")
+        sale_amt = st.number_input("Sale Amount (₹)", min_value=0)
+        stock_used = st.number_input("Stock Units Used", min_value=0)
+        if st.button("Save Sale"):
+            st.session_state.outlets[selected_outlet]['revenue'] += sale_amt
+            st.session_state.outlets[selected_outlet]['stock'] -= stock_used
+            st.success("Sale Recorded!")
+            st.rerun()
+            
+    with col2:
+        st.subheader("Add Expense")
+        exp_amt = st.number_input("Expense (Rent/Salary/Raw Materials) (₹)", min_value=0)
+        if st.button("Save Expense"):
+            st.session_state.outlets[selected_outlet]['expenses'] += exp_amt
+            st.success("Expense Recorded!")
+            st.rerun()
