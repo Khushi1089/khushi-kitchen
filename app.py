@@ -5,154 +5,171 @@ from datetime import datetime
 import io
 
 # --- APP CONFIG ---
-st.set_page_config(page_title="Cloud K - Global ERP", page_icon="☁️", layout="wide")
+st.set_page_config(page_title="Cloud K - Global Analytics", page_icon="☁️", layout="wide")
 
-# --- DATABASE INITIALIZATION ---
+# --- DATA PERSISTENCE ---
 if 'db' not in st.session_state:
     st.session_state.db = {
-        "outlets": ["The Home Plate", "No Cap Burgers", "Hello Momos"],
+        "outlets": ["The Home Plate", "No Cap Burgers", "Pocket Pizzaz", "Witx Sandwitx", "Hello Momos", "Khushi Breakfast Club", "Bihar ka Swad"],
         "inventory": pd.DataFrame(columns=["Outlet", "Item", "Qty", "Unit", "Total_Cost"]),
         "recipes": {}, 
         "menu_prices": {}, 
-        "outlet_platforms": {
-            "The Home Plate": {"Zomato": 25.0, "Swiggy": 25.0, "Direct": 0.0}
+        "outlet_configs": {
+            "The Home Plate": {"Platforms": {"Direct": {"comm": 0.0, "del": 0.0}}}
         },
-        "sales": pd.DataFrame(columns=["Date", "Outlet", "Dish", "Platform", "Base_Price", "Commission", "Tax", "Delivery", "Net_Profit"]),
+        "sales": pd.DataFrame(columns=["Date", "Outlet", "Dish", "Platform", "Revenue", "Comm_Paid", "Del_Cost", "Ing_Cost", "Net_Profit"]),
         "expenses": pd.DataFrame(columns=["Date", "Outlet", "Category", "Amount", "Notes"])
     }
 
 db = st.session_state.db
 
-# --- SIDEBAR ---
-st.sidebar.title("☁️ Cloud K Command")
-menu = st.sidebar.radio("Navigate", [
-    "Dashboard", "Sale Entry", "Misc Expenses", "Menu & Pricing", 
-    "Stock Room", "Recipe Master", "Outlet & Platform Settings"
+# --- SIDEBAR NAVIGATION ---
+st.sidebar.title("☁️ Cloud K Master")
+menu = st.sidebar.radio("Navigation", [
+    "Dashboard & Analytics", "Sale Entry", "Misc Expenses", 
+    "Menu & Pricing", "Stock Room", "Recipe Master", "Outlet & Platform Settings"
 ])
 
-selected_outlet = st.sidebar.selectbox("Active Outlet", db["outlets"])
-
-# --- 1. OUTLET & PLATFORM SETTINGS ---
+# --- 1. SETTINGS: OUTLETS & PLATFORMS ---
 if menu == "Outlet & Platform Settings":
-    st.title("🏢 Management Control")
-    
-    col1, col2 = st.columns(2)
-    with col1:
+    st.title("🏢 Outlet & Platform Management")
+    c1, c2 = st.columns(2)
+    with c1:
         st.subheader("Manage Outlets")
         new_out = st.text_input("New Outlet Name")
         if st.button("Add Outlet"):
             if new_out and new_out not in db["outlets"]:
                 db["outlets"].append(new_out)
-                db["outlet_platforms"][new_out] = {"Direct": 0.0}
-                st.success(f"{new_out} added!")
+                db["outlet_configs"][new_out] = {"Platforms": {"Direct": {"comm": 0.0, "del": 0.0}}}
                 st.rerun()
         
         rem_out = st.selectbox("Remove Outlet", db["outlets"])
         if st.button("Delete Outlet"):
             db["outlets"].remove(rem_out)
-            st.warning(f"{rem_out} removed.")
             st.rerun()
 
-    with col2:
-        st.subheader("Manage Platforms & Commissions")
-        p_name = st.text_input("Platform Name (e.g., MagicPin)")
-        p_comm = st.number_input("Commission %", min_value=0.0, max_value=100.0)
-        if st.button(f"Add Platform to {selected_outlet}"):
-            if selected_outlet not in db["outlet_platforms"]:
-                db["outlet_platforms"][selected_outlet] = {}
-            db["outlet_platforms"][selected_outlet][p_name] = p_comm
-            st.success(f"Linked {p_name} at {p_comm}%")
+    with c2:
+        st.subheader("Platform Config per Outlet")
+        target_out = st.selectbox("Select Outlet", db["outlets"])
+        p_name = st.text_input("Platform Name (e.g., Zomato)")
+        p_comm = st.number_input("Commission %", min_value=0.0)
+        p_del = st.number_input("Platform Delivery Charge (₹)", min_value=0.0)
+        
+        if st.button(f"Link Platform to {target_out}"):
+            if target_out not in db["outlet_configs"]: db["outlet_configs"][target_out] = {"Platforms": {}}
+            db["outlet_configs"][target_out]["Platforms"][p_name] = {"comm": p_comm, "del": p_del}
+            st.success(f"Linked {p_name} to {target_out}")
 
-# --- 2. STOCK ROOM (GRAMS & PIECES) ---
-elif menu == "Stock Room":
+# --- ACTIVE OUTLET ---
+selected_outlet = st.sidebar.selectbox("Active Outlet", db["outlets"])
+
+# --- 2. STOCK ROOM ---
+if menu == "Stock Room":
     st.title(f"📦 Inventory: {selected_outlet}")
-    with st.form("add_stock"):
+    with st.form("stock"):
         c1, c2, c3, c4 = st.columns(4)
-        item = c1.text_input("Item (e.g., Flour, Patty)")
-        qty = c2.number_input("Quantity", min_value=0.0)
-        unit = c3.selectbox("Unit", ["Grams", "Pieces", "ML", "Kg"])
-        cost = c4.number_input("Total Purchase Cost (₹)", min_value=0.0)
-        if st.form_submit_button("Update Stock"):
+        item = c1.text_input("Item Name")
+        qty = c2.number_input("Quantity")
+        unit = c3.selectbox("Unit", ["Grams", "Pieces", "Kg", "Liters"])
+        cost = c4.number_input("Total Purchase Cost (₹)")
+        if st.form_submit_button("Update Inventory"):
             new_row = {"Outlet": selected_outlet, "Item": item, "Qty": qty, "Unit": unit, "Total_Cost": cost}
             st.session_state.db["inventory"] = pd.concat([db["inventory"], pd.DataFrame([new_row])], ignore_index=True)
-
     st.dataframe(db["inventory"][db["inventory"]["Outlet"] == selected_outlet])
 
-# --- 3. RECIPE MASTER (PER DISH UNITS) ---
+# --- 3. RECIPE MASTER ---
 elif menu == "Recipe Master":
-    st.title("👨‍🍳 Recipe & Costing")
-    dish_name = st.text_input("Dish Name (e.g., Classic Burger)")
-    
-    available_items = db["inventory"]["Item"].unique()
-    if len(available_items) == 0:
-        st.error("Add items to Stock Room first!")
-    else:
-        selected_ingredients = st.multiselect("Select Ingredients", available_items)
+    st.title("👨‍🍳 Recipe & Per-Dish Units")
+    dish_name = st.text_input("Dish Name")
+    items = db["inventory"]["Item"].unique()
+    if len(items) > 0:
+        sel_items = st.multiselect("Select Ingredients", items)
         recipe_data = {}
-        for ing in selected_ingredients:
-            unit_type = db["inventory"][db["inventory"]["Item"] == ing]["Unit"].values[0]
-            amt = st.number_input(f"Amount of {ing} (in {unit_type}) used per dish", min_value=0.0, format="%.2f")
-            recipe_data[ing] = amt
-        
+        for i in sel_items:
+            u = db["inventory"][db["inventory"]["Item"] == i]["Unit"].values[0]
+            recipe_data[i] = st.number_input(f"{i} used ({u})", min_value=0.0, format="%.2f")
         if st.button("Save Recipe"):
             db["recipes"][dish_name] = recipe_data
-            st.success(f"Recipe for {dish_name} saved!")
+            st.success("Recipe Linked!")
 
 # --- 4. MENU & PRICING ---
 elif menu == "Menu & Pricing":
     st.title("💰 Menu Pricing")
-    if not db["recipes"]:
-        st.info("Create a recipe first!")
-    else:
-        for dish in db["recipes"].keys():
-            db["menu_prices"][dish] = st.number_input(f"Selling Price for {dish} (₹)", value=float(db["menu_prices"].get(dish, 0.0)))
-        st.success("Prices Updated!")
+    for dish in db["recipes"].keys():
+        db["menu_prices"][dish] = st.number_input(f"Price for {dish}", value=float(db["menu_prices"].get(dish, 0.0)))
 
-# --- 5. SALE ENTRY (CALCULATED PROFIT) ---
+# --- 5. SALE ENTRY ---
 elif menu == "Sale Entry":
     st.title(f"🎯 Sale: {selected_outlet}")
+    config = db["outlet_configs"].get(selected_outlet, {"Platforms": {"Direct": {"comm": 0.0, "del": 0.0}}})
+    platforms = list(config["Platforms"].keys())
     
-    if not db["menu_prices"]:
-        st.error("Setup Recipes and Prices first!")
-    else:
-        dish = st.selectbox("Product", list(db["menu_prices"].keys()))
-        platform = st.selectbox("Platform", list(db["outlet_platforms"].get(selected_outlet, {"Direct":0}).keys()))
+    dish = st.selectbox("Product", list(db["menu_prices"].keys()))
+    plat = st.selectbox("Platform", platforms)
+    
+    price = st.number_input("Base Price", value=db["menu_prices"].get(dish, 0.0))
+    
+    if st.button("Confirm Sale"):
+        # Calc Costs
+        ing_cost = 0
+        recipe = db["recipes"].get(dish, {})
+        for item, amt in recipe.items():
+            match = db["inventory"][(db["inventory"]["Item"]==item) & (db["inventory"]["Outlet"]==selected_outlet)]
+            if not match.empty:
+                ing_cost += (match["Total_Cost"].values[0] / match["Qty"].values[0]) * amt
         
-        c1, c2, c3 = st.columns(3)
-        price = c1.number_input("Price", value=db["menu_prices"][dish])
-        tax = c2.number_input("Tax (₹)", min_value=0.0)
-        deliv = c3.number_input("Delivery Charge (₹)", min_value=0.0)
+        plat_data = config["Platforms"][plat]
+        comm_amt = (price * plat_data['comm']) / 100
+        del_fee = plat_data['del']
+        net_prof = price - comm_amt - del_fee - ing_cost
         
-        if st.button("Log Sale"):
-            # Calculate ingredient cost
-            ing_cost = 0
-            recipe = db["recipes"][dish]
-            for item, amt in recipe.items():
-                inv_match = db["inventory"][(db["inventory"]["Item"]==item) & (db["inventory"]["Outlet"]==selected_outlet)]
-                if not inv_match.empty:
-                    # Cost per unit = Total Cost / Total Qty
-                    unit_cost = inv_match["Total_Cost"].values[0] / inv_match["Qty"].values[0]
-                    ing_cost += (unit_cost * amt)
-            
-            comm_amt = (price * db["outlet_platforms"][selected_outlet].get(platform, 0)) / 100
-            net_prof = price - comm_amt - ing_cost - deliv
-            
-            new_s = pd.DataFrame([{
-                "Date": datetime.now(), "Outlet": selected_outlet, "Dish": dish, "Platform": platform,
-                "Base_Price": price, "Commission": comm_amt, "Tax": tax, "Delivery": deliv, "Net_Profit": net_prof
-            }])
-            st.session_state.db["sales"] = pd.concat([db["sales"], new_s], ignore_index=True)
-            st.success(f"Profit of ₹{round(net_prof, 2)} recorded!")
+        new_sale = pd.DataFrame([{
+            "Date": datetime.now(), "Outlet": selected_outlet, "Dish": dish, "Platform": plat,
+            "Revenue": price, "Comm_Paid": comm_amt, "Del_Cost": del_fee, "Ing_Cost": ing_cost, "Net_Profit": net_prof
+        }])
+        st.session_state.db["sales"] = pd.concat([db["sales"], new_sale], ignore_index=True)
+        st.balloons()
 
-# --- 6. DASHBOARD ---
-elif menu == "Dashboard":
-    st.title(f"📊 {selected_outlet} Dashboard")
-    s_df = db["sales"][db["sales"]["Outlet"] == selected_outlet]
+# --- 6. MISC EXPENSES ---
+elif menu == "Misc Expenses":
+    st.title(f"💸 Expenses: {selected_outlet}")
+    with st.form("exp"):
+        cat = st.selectbox("Category", ["Rent", "Salary", "Electricity", "Other"])
+        amt = st.number_input("Amount")
+        if st.form_submit_button("Log Expense"):
+            new_exp = pd.DataFrame([{"Date": datetime.now(), "Outlet": selected_outlet, "Category": cat, "Amount": amt}])
+            st.session_state.db["expenses"] = pd.concat([db["expenses"], new_exp], ignore_index=True)
+
+# --- 7. DASHBOARD & ANALYTICS ---
+elif menu == "Dashboard & Analytics":
+    st.title(f"📊 {selected_outlet} Financial Engine")
     
-    m1, m2 = st.columns(2)
-    m1.metric("Gross Sales", f"₹{s_df['Base_Price'].sum()}")
-    m2.metric("Net Profit", f"₹{round(s_df['Net_Profit'].sum(), 2)}")
+    view = st.radio("Analytics Period", ["Monthly", "Yearly"], horizontal=True)
+    s_df = db["sales"][db["sales"]["Outlet"] == selected_outlet].copy()
+    e_df = db["expenses"][db["expenses"]["Outlet"] == selected_outlet].copy()
     
     if not s_df.empty:
-        fig = px.pie(s_df, values='Net_Profit', names='Platform', title="Profit by Platform")
-        st.plotly_chart(fig)
+        s_df['Date'] = pd.to_datetime(s_df['Date'])
+        format_str = '%Y-%m' if view == "Monthly" else '%Y'
+        s_df['Period'] = s_df['Date'].dt.strftime(format_str)
+        
+        stats = s_df.groupby('Period').agg({
+            'Revenue': 'sum', 'Comm_Paid': 'sum', 'Del_Cost': 'sum', 'Ing_Cost': 'sum', 'Net_Profit': 'sum'
+        }).reset_index()
+
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("Total Revenue", f"₹{stats['Revenue'].sum()}")
+        m2.metric("Total Profit", f"₹{round(stats['Net_Profit'].sum() - e_df['Amount'].sum(), 2)}")
+        m3.metric("Platform Fees", f"₹{stats['Comm_Paid'].sum() + stats['Del_Cost'].sum()}")
+        m4.metric("Expenses", f"₹{e_df['Amount'].sum()}")
+
+        st.plotly_chart(px.bar(stats, x='Period', y=['Revenue', 'Net_Profit'], barmode='group', title=f"{view} Sales vs Profit"))
+        
+        # EXCEL DOWNLOAD
+        buf = io.BytesIO()
+        with pd.ExcelWriter(buf, engine='xlsxwriter') as writer:
+            s_df.to_excel(writer, sheet_name='Sales')
+            e_df.to_excel(writer, sheet_name='Expenses')
+        st.download_button("📥 Export Yearly Report", buf, f"{selected_outlet}_Report.xlsx")
+    else:
+        st.info("Log your first sale to see analytics!")
