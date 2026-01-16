@@ -30,43 +30,67 @@ menu = st.sidebar.radio("Navigate", [
 
 selected_outlet = st.sidebar.selectbox("Active Outlet", db["outlets"])
 
-# --- 1. DASHBOARD (FIXED VALUEERROR) ---
+# --- 1. DASHBOARD (STRICT DATE-BASED ANALYTICS) ---
 if menu == "Dashboard":
-    st.title(f"📊 {selected_outlet} Financials")
+    st.title(f"📊 {selected_outlet}: Financial Engine")
     
+    # 1. Filter Data by Selected Outlet
     s_df = db["sales"][db["sales"]["Outlet"] == selected_outlet].copy()
     e_df = db["expenses"][db["expenses"]["Outlet"] == selected_outlet].copy()
 
     if s_df.empty and e_df.empty:
-        st.info("No data available for this outlet.")
+        st.info("No data found. Start by entering sales or expenses!")
     else:
-        # Standardize dates to prevent plotting errors
+        # Ensure Date columns are datetime objects
         s_df['Date'] = pd.to_datetime(s_df['Date'])
         e_df['Date'] = pd.to_datetime(e_df['Date'])
 
-        view_type = st.radio("Group By", ["Daily", "Monthly", "Yearly"], horizontal=True)
+        # 2. Time View Selection
+        view_type = st.radio("Switch View", ["Monthly Analytics", "Yearly Analytics"], horizontal=True)
         
-        if view_type == "Daily":
-            fmt = '%Y-%m-%d'
-        elif view_type == "Monthly":
-            fmt = '%b %Y'
+        # 3. Aggregation Logic
+        if view_type == "Monthly Analytics":
+            s_df['Period'] = s_df['Date'].dt.strftime('%b %Y')
+            e_df['Period'] = e_df['Date'].dt.strftime('%b %Y')
         else:
-            fmt = '%Y'
+            s_df['Period'] = s_df['Date'].dt.strftime('%Y')
+            e_df['Period'] = e_df['Date'].dt.strftime('%Y')
 
-        s_df['DisplayDate'] = s_df['Date'].dt.strftime(fmt)
-        e_df['DisplayDate'] = e_df['Date'].dt.strftime(fmt)
-
-        # Aggregate and Merge
-        sales_sum = s_df.groupby('DisplayDate').agg({'Revenue': 'sum', 'Net_Profit': 'sum'}).reset_index()
-        exp_sum = e_df.groupby('DisplayDate').agg({'Amount': 'sum'}).reset_index()
+        # Calculate Grouped Data
+        monthly_sales = s_df.groupby('Period').agg({
+            'Revenue': 'sum', 'Comm_Paid': 'sum', 'Del_Cost': 'sum', 'Ing_Cost': 'sum', 'Net_Profit': 'sum'
+        }).reset_index()
         
-        stats = pd.merge(sales_sum, exp_sum, on='DisplayDate', how='outer').fillna(0)
-        stats['Final_Profit'] = stats['Net_Profit'] - stats['Amount']
+        monthly_exp = e_df.groupby('Period').agg({'Amount': 'sum'}).reset_index()
+        
+        # Combine Sales and Expenses for True Profit
+        final_stats = pd.merge(monthly_sales, monthly_exp, on='Period', how='outer').fillna(0)
+        final_stats['Final_Profit'] = final_stats['Net_Profit'] - final_stats['Amount']
 
-        # Visualization
-        fig = px.bar(stats, x='DisplayDate', y=['Revenue', 'Final_Profit'], 
-                     barmode='group', title=f"{view_type} Performance")
+        # 4. Display Key Metrics
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("Total Revenue", f"₹{round(final_stats['Revenue'].sum(), 2)}")
+        m2.metric("Inventory Costs", f"₹{round(final_stats['Ing_Cost'].sum(), 2)}")
+        m3.metric("Platform & Delivery", f"₹{round(final_stats['Comm_Paid'].sum() + final_stats['Del_Cost'].sum(), 2)}")
+        
+        actual_profit = final_stats['Final_Profit'].sum()
+        if actual_profit >= 0:
+            m4.metric("Net Profit", f"₹{round(actual_profit, 2)}", delta_color="normal")
+        else:
+            m4.metric("Net Loss", f"₹{round(actual_profit, 2)}", delta="LOSS", delta_color="inverse")
+
+        # 5. Visual Trend Analysis
+        st.subheader(f"{view_type} Trend")
+        
+        fig = px.bar(final_stats, x='Period', y=['Revenue', 'Final_Profit'],
+                     barmode='group', 
+                     color_discrete_map={'Revenue': '#3498db', 'Final_Profit': '#2ecc71'},
+                     labels={'value': 'Amount (₹)', 'variable': 'Financial Category'})
         st.plotly_chart(fig, use_container_width=True)
+
+        # 6. Breakdown Table
+        with st.expander("View Detailed Raw Data"):
+            st.dataframe(final_stats.sort_values('Period', ascending=False))
 
 # --- 2. MISC EXPENSES (FIXED TYPEERROR & SORTING) ---
 elif menu == "Misc Expenses":
