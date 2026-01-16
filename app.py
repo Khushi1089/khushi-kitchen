@@ -426,5 +426,110 @@ elif menu == "Stock Room":
 
 # --- 7. SALE ENTRY ---
 elif menu == "Sale Entry":
-    st.title("🎯 Record Sales")
-    st.info("Ensure you have added Recipes and Inventory before logging sales.")
+    st.title(f"🎯 Sale Entry: {selected_outlet}")
+    
+    # 1. Verification Checks
+    if not st.session_state.db["recipes"]:
+        st.warning("⚠️ No recipes found. Please create recipes in 'Recipe Master' first.")
+    elif selected_outlet not in st.session_state.db["outlet_configs"] or not st.session_state.db["outlet_configs"][selected_outlet].get("Platforms"):
+        st.warning("⚠️ No platforms linked. Please add platforms in 'Outlet & Platform Settings' first.")
+    else:
+        # 2. Entry Form
+        with st.form("sale_entry_form", clear_on_submit=True):
+            c1, c2, c3, c4 = st.columns(4)
+            sale_date = c1.date_input("Sale Date", datetime.now())
+            selected_dish = c2.selectbox("Select Dish", list(st.session_state.db["recipes"].keys()))
+            selected_plat = c3.selectbox("Platform", list(st.session_state.db["outlet_configs"][selected_outlet]["Platforms"].keys()))
+            qty_sold = c4.number_input("Quantity Sold", min_value=1, step=1)
+            
+            submit_sale = st.form_submit_button("🔨 Record Sale & Deduct Stock")
+
+            if submit_sale:
+                # Retrieve Pricing & Costing Data
+                plat_cfg = st.session_state.db["outlet_configs"][selected_outlet]["Platforms"][selected_plat]
+                ing_cost_per_unit = st.session_state.db["menu_prices"].get(selected_dish, 0.0)
+                
+                # Calculations
+                # Note: Assuming Revenue is entered manually or calculated from a base price. 
+                # For this logic, we use a placeholder or you can add a 'Price' field to Recipe Master.
+                # Here we calculate costs for the log:
+                total_ing_cost = ing_cost_per_unit * qty_sold
+                comm_amt = (plat_cfg['comm'] / 100) * 0 # Adjust if you have a Selling Price field
+                del_fee = plat_cfg['del'] * qty_sold
+                
+                # --- STOCK DEDUCTION LOGIC ---
+                recipe = st.session_state.db["recipes"][selected_dish]
+                stock_available = True
+                
+                # Check if enough stock exists first
+                for item, amt_per_dish in recipe.items():
+                    total_needed = amt_per_dish * qty_sold
+                    current_stock = st.session_state.db["inventory"][
+                        (st.session_state.db["inventory"]["Outlet"] == selected_outlet) & 
+                        (st.session_state.db["inventory"]["Item"] == item)
+                    ]["Qty"].sum()
+                    
+                    if current_stock < total_needed:
+                        st.error(f"❌ Insufficient stock for {item}. Need {total_needed}, have {current_stock}")
+                        stock_available = False
+                        break
+                
+                if stock_available:
+                    # Deduct from Inventory
+                    for item, amt_per_dish in recipe.items():
+                        total_deduct = amt_per_dish * qty_sold
+                        # Update the dataframe
+                        idx = st.session_state.db["inventory"][
+                            (st.session_state.db["inventory"]["Outlet"] == selected_outlet) & 
+                            (st.session_state.db["inventory"]["Item"] == item)
+                        ].index
+                        if not idx.empty:
+                            st.session_state.db["inventory"].at[idx[0], "Qty"] -= total_deduct
+                    
+                    # Log the Sale
+                    new_sale = pd.DataFrame([{
+                        "id": datetime.now().strftime('%Y%m%d%H%M%S%f'),
+                        "Date": pd.to_datetime(sale_date),
+                        "Outlet": selected_outlet,
+                        "Dish": selected_dish,
+                        "Platform": selected_plat,
+                        "Qty": qty_sold,
+                        "Revenue": 0.0, # You can add a selling price input to automate this
+                        "Comm_Paid": comm_amt,
+                        "Del_Cost": del_fee,
+                        "Ing_Cost": total_ing_cost,
+                        "Net_Profit": -(total_ing_cost + del_fee) # Placeholder profit
+                    }])
+                    
+                    st.session_state.db["sales"] = pd.concat([st.session_state.db["sales"], new_sale], ignore_index=True)
+                    st.success(f"✅ Recorded {qty_sold} x {selected_dish} and updated stock room!")
+                    st.rerun()
+
+    # 3. Sales History & Delete Option
+    st.divider()
+    st.subheader("🧾 Recent Sales Logs")
+    s_df = st.session_state.db["sales"]
+    outlet_sales = s_df[s_df["Outlet"] == selected_outlet].sort_values(by="Date", ascending=False)
+
+    if not outlet_sales.empty:
+        h1, h2, h3, h4, h5 = st.columns([2, 3, 2, 2, 1])
+        h1.write("**Date**")
+        h2.write("**Item & Platform**")
+        h3.write("**Qty**")
+        h4.write("**Ing. Cost**")
+        h5.write("**Action**")
+
+        for idx, row in outlet_sales.iterrows():
+            with st.container():
+                col1, col2, col3, col4, col5 = st.columns([2, 3, 2, 2, 1])
+                col1.write(pd.to_datetime(row['Date']).strftime('%d-%b'))
+                col2.write(f"{row['Dish']} ({row['Platform']})")
+                col3.write(str(row.get('Qty', 1)))
+                col4.write(f"₹{round(row['Ing_Cost'], 2)}")
+                
+                if col5.button("🗑️", key=f"del_sale_{row.get('id', idx)}"):
+                    st.session_state.db["sales"] = st.session_state.db["sales"].drop(idx)
+                    st.toast("Sale entry deleted. Note: Stock was not restored.")
+                    st.rerun()
+    else:
+        st.info("No sales recorded for this outlet yet.")
