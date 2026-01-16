@@ -180,7 +180,77 @@ elif menu == "Outlet & Platform Settings":
             db["outlet_configs"][selected_outlet]["Platforms"][p_name] = {"comm": p_comm, "del": p_del}
             st.success("Linked!")
 
-# --- 6. SALE ENTRY ---
+# --- 6. STOCK ROOM (INVENTORY MANAGEMENT) ---
+elif menu == "Stock Room":
+    st.title(f"📦 Stock Room: {selected_outlet}")
+    
+    # 1. Add New Item Form
+    with st.expander("➕ Add New Inventory Item", expanded=False):
+        with st.form("add_inventory_form", clear_on_submit=True):
+            c1, c2, c3, c4 = st.columns(4)
+            item_name = c1.text_input("Item Name (e.g., Flour, Oil)")
+            qty = c2.number_input("Quantity", min_value=0.0, step=0.1)
+            unit = c3.selectbox("Unit", ["kg", "ltr", "gm", "ml", "pcs", "box"])
+            cost = c4.number_input("Total Cost (₹)", min_value=0.0, step=1.0)
+            
+            if st.form_submit_button("Add to Stock"):
+                if item_name:
+                    new_id = datetime.now().strftime('%Y%m%d%H%M%S%f')
+                    new_item = pd.DataFrame([{
+                        "id": new_id,
+                        "Outlet": selected_outlet,
+                        "Item": item_name,
+                        "Qty": qty,
+                        "Unit": unit,
+                        "Total_Cost": cost
+                    }])
+                    st.session_state.db["inventory"] = pd.concat([st.session_state.db["inventory"], new_item], ignore_index=True)
+                    st.success(f"Added {item_name} to inventory!")
+                    st.rerun()
+                else:
+                    st.error("Please enter an item name.")
+
+    st.divider()
+
+    # 2. Display and Manage Inventory
+    st.subheader("📋 Current Stock Levels")
+    
+    # Filter inventory for the selected outlet
+    inv_df = st.session_state.db["inventory"]
+    outlet_inv = inv_df[inv_df["Outlet"] == selected_outlet].copy()
+
+    if not outlet_inv.empty:
+        # Create Table Headers
+        h1, h2, h3, h4, h5 = st.columns([3, 2, 2, 2, 1])
+        h1.write("**Item Name**")
+        h2.write("**Quantity**")
+        h3.write("**Unit**")
+        h4.write("**Total Cost**")
+        h5.write("**Action**")
+
+        for idx, row in outlet_inv.iterrows():
+            with st.container():
+                col1, col2, col3, col4, col5 = st.columns([3, 2, 2, 2, 1])
+                
+                col1.write(row["Item"])
+                col2.write(f"{row['Qty']}")
+                col3.write(row["Unit"])
+                col4.write(f"₹{row['Total_Cost']}")
+                
+                # Delete Button for each item
+                if col5.button("🗑️", key=f"inv_del_{row['id']}"):
+                    st.session_state.db["inventory"] = st.session_state.db["inventory"].drop(idx).reset_index(drop=True)
+                    st.toast(f"Removed {row['Item']} from stock")
+                    st.rerun()
+                    
+        # Optional: Low Stock Warning (Example: less than 2 units)
+        low_stock = outlet_inv[outlet_inv["Qty"] < 2]
+        if not low_stock.empty:
+            st.warning(f"⚠️ Low Stock Alert for: {', '.join(low_stock['Item'].tolist())}")
+    else:
+        st.info("Your stock room is empty. Add items above to get started.")
+
+# --- 7. SALE ENTRY ---
 elif menu == "Sale Entry":
     st.title("🎯 Record Sales")
     st.info("Ensure you have added Recipes and Inventory before logging sales.")
