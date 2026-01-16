@@ -217,17 +217,65 @@ elif menu == "Recipe Master":
                         del st.session_state.db["menu_prices"][dish]
                     st.rerun()
 
-# --- 4. MENU & PRICING ---
+# --- 4. MENU & PRICING (UPDATED WITH ADVANCED COSTING TABLE) ---
 elif menu == "Menu & Pricing":
-    st.title("💰 Menu Master")
-    if not db["recipes"]:
-        st.info("Create a Recipe first.")
+    st.title("💰 Menu Master & advanced Costing")
+    
+    if not st.session_state.db["recipes"]:
+        st.info("⚠️ No recipes found. Please create a recipe in 'Recipe Master' first to see it here.")
     else:
-        for dish in db["recipes"].keys():
-            current_price = db["menu_prices"].get(dish, 0.0)
-            db["menu_prices"][dish] = st.number_input(f"Selling Price: {dish} (₹)", value=float(current_price))
-        if st.button("Save Prices"):
-            st.success("Menu updated!")
+        st.subheader(f"Costing Analysis for {selected_outlet}")
+        
+        # Prepare lists to build the final display table
+        table_data = []
+
+        for dish_name in st.session_state.db["recipes"].keys():
+            # 1. Pull Production Cost from Recipe Master
+            prod_cost = st.session_state.db["menu_prices"].get(dish_name, 0.0)
+            
+            st.markdown(f"### 🍴 {dish_name}")
+            col_in1, col_in2, col_in3 = st.columns(3)
+            
+            # 2. Manual Inputs
+            comm = col_in1.number_input(f"Platform Commission (₹)", min_value=0.0, step=1.0, key=f"comm_{dish_name}")
+            adv = col_in2.number_input(f"Advertisement Cost (₹)", min_value=0.0, step=1.0, key=f"adv_{dish_name}")
+            misc = col_in3.number_input(f"Misc Expenses (₹)", min_value=0.0, step=1.0, key=f"misc_{dish_name}")
+            
+            # 3. Real-time Calculations
+            total_spent = prod_cost + comm + adv + misc
+            labour = total_spent * 0.10  # 10% of total spent
+            profit = (total_spent + labour) * 0.10 # 10% of (total spent + labour)
+            grand_total = total_spent + labour + profit
+            
+            # 4. Add to table list
+            table_data.append({
+                "Dish Name": dish_name,
+                "Production Cost": f"₹{round(prod_cost, 2)}",
+                "Platform Commission": f"₹{round(comm, 2)}",
+                "Advertisement Cost": f"₹{round(adv, 2)}",
+                "Misc": f"₹{round(misc, 2)}",
+                "Total Spent": f"₹{round(total_spent, 2)}",
+                "Labour (10%)": f"₹{round(labour, 2)}",
+                "Profit (10%)": f"₹{round(profit, 2)}",
+                "Grand Total": f"₹{round(grand_total, 2)}"
+            })
+            st.divider()
+
+        # 5. Display the Final Table
+        if table_data:
+            st.subheader("📊 Final Pricing Summary Table")
+            summary_df = pd.DataFrame(table_data)
+            st.table(summary_df)
+            
+            # Optional: Button to export this data
+            csv = summary_df.to_csv(index=False).encode('utf-8')
+            st.download_button(
+                "📥 Download Pricing Table",
+                csv,
+                f"Pricing_Analysis_{selected_outlet}.csv",
+                "text/csv",
+                key='download-csv'
+            )
 
 # --- 5. OUTLET & PLATFORM SETTINGS ---
 elif menu == "Outlet & Platform Settings":
