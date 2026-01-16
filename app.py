@@ -280,16 +280,79 @@ elif menu == "Menu & Pricing":
 # --- 5. OUTLET & PLATFORM SETTINGS ---
 elif menu == "Outlet & Platform Settings":
     st.title("⚙️ Outlet & Platform Config")
+    
+    # --- OUTLET MANAGEMENT SECTION ---
+    st.subheader("🏢 Outlet Management")
     c1, c2 = st.columns(2)
+    
     with c1:
-        st.subheader("Link Platforms")
-        p_name = st.text_input("Platform Name")
-        p_comm = st.number_input("Commission %", min_value=0.0)
-        p_del = st.number_input("Delivery Fee (₹)", min_value=0.0)
+        # Add New Outlet
+        with st.expander("➕ Add New Outlet"):
+            new_outlet_name = st.text_input("New Outlet Name")
+            if st.button("Create Outlet"):
+                if new_outlet_name and new_outlet_name not in st.session_state.db["outlets"]:
+                    st.session_state.db["outlets"].append(new_outlet_name)
+                    st.success(f"Outlet '{new_outlet_name}' added!")
+                    st.rerun()
+                else:
+                    st.error("Invalid name or outlet already exists.")
+
+    with c2:
+        # Rename Current Outlet
+        with st.expander("📝 Rename Current Outlet"):
+            rename_val = st.text_input("New name for " + selected_outlet)
+            if st.button("Update Name"):
+                if rename_val:
+                    # Update the list
+                    idx = st.session_state.db["outlets"].index(selected_outlet)
+                    st.session_state.db["outlets"][idx] = rename_val
+                    
+                    # Update references in dataframes
+                    st.session_state.db["inventory"].loc[st.session_state.db["inventory"]["Outlet"] == selected_outlet, "Outlet"] = rename_val
+                    st.session_state.db["expenses"].loc[st.session_state.db["expenses"]["Outlet"] == selected_outlet, "Outlet"] = rename_val
+                    st.session_state.db["sales"].loc[st.session_state.db["sales"]["Outlet"] == selected_outlet, "Outlet"] = rename_val
+                    
+                    st.success("Outlet renamed!")
+                    st.rerun()
+
+    # Delete Outlet
+    with st.expander("🗑️ Danger Zone: Delete Outlet"):
+        st.warning(f"This will remove '{selected_outlet}' from the list. (Data in logs will remain but won't be accessible via this outlet name)")
+        if st.button(f"Permanently Delete {selected_outlet}"):
+            if len(st.session_state.db["outlets"]) > 1:
+                st.session_state.db["outlets"].remove(selected_outlet)
+                st.success("Outlet deleted.")
+                st.rerun()
+            else:
+                st.error("You must have at least one outlet.")
+
+    st.divider()
+
+    # --- PLATFORM MANAGEMENT SECTION ---
+    st.subheader("🌐 Platform Settings")
+    p1, p2 = st.columns(2)
+    with p1:
+        st.markdown("#### Link New Platform")
+        p_name = st.text_input("Platform Name (e.g., Zomato, Swiggy)")
+        p_comm = st.number_input("Commission %", min_value=0.0, step=0.1)
+        p_del = st.number_input("Delivery Fee (₹)", min_value=0.0, step=1.0)
         if st.button("Add Platform"):
-            if selected_outlet not in db["outlet_configs"]: db["outlet_configs"][selected_outlet] = {"Platforms": {}}
+            if selected_outlet not in db["outlet_configs"]: 
+                db["outlet_configs"][selected_outlet] = {"Platforms": {}}
             db["outlet_configs"][selected_outlet]["Platforms"][p_name] = {"comm": p_comm, "del": p_del}
-            st.success("Linked!")
+            st.success(f"Linked {p_name} to {selected_outlet}!")
+
+    with p2:
+        st.markdown("#### Active Platforms")
+        if selected_outlet in db["outlet_configs"] and db["outlet_configs"][selected_outlet]["Platforms"]:
+            for plat, details in db["outlet_configs"][selected_outlet]["Platforms"].items():
+                col_p, col_b = st.columns([3, 1])
+                col_p.write(f"**{plat}**: {details['comm']}% comm | ₹{details['del']} fee")
+                if col_b.button("🗑️", key=f"del_plat_{plat}"):
+                    del db["outlet_configs"][selected_outlet]["Platforms"][plat]
+                    st.rerun()
+        else:
+            st.info("No platforms linked to this outlet.")
 
 # --- 6. STOCK ROOM (INVENTORY MANAGEMENT) ---
 elif menu == "Stock Room":
