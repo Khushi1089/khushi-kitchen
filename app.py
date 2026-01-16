@@ -135,78 +135,35 @@ elif menu == "Sale Entry":
                 st.session_state.db["sales"] = pd.concat([db["sales"], new_row], ignore_index=True)
                 st.success(f"Profit of ₹{round(net_profit, 2)} recorded.")
 
-# --- 3. MISC EXPENSES (UPGRADED WITH HISTORY LIST) ---
-if menu == "Misc Expenses":
-    st.title(f"💸 Expense Ledger: {selected_outlet}")
-    
-    # Entry Form
-    with st.expander("➕ Add New Expense", expanded=True):
-        with st.form("exp_form", clear_on_submit=True):
-            c1, c2 = st.columns(2)
-            cat = c1.selectbox("Expense Category", ["Rent", "Salary", "Electricity", "Packaging", "Cleaning", "Marketing", "Maintenance", "Misc"])
-            amt = c2.number_input("Amount (₹)", min_value=0.0, step=10.0)
-            
-            c3, c4 = st.columns(2)
-            exp_date = c3.date_input("Date of Expense", datetime.now())
-            note = c4.text_input("Notes/Remarks (e.g. 'January Rent')")
-            
-            if st.form_submit_button("Record Expense"):
-                new_e = pd.DataFrame([{"Date": exp_date, "Outlet": selected_outlet, "Category": cat, "Amount": amt, "Notes": note}])
-                st.session_state.db["expenses"] = pd.concat([db["expenses"], new_e], ignore_index=True)
-                st.success(f"Recorded: ₹{amt} for {cat}")
-                st.rerun()
+# --- 3import streamlit as st
+import pandas as pd
+import plotly.express as px
+from datetime import datetime
+import io
 
-    st.divider()
-    
-    # Expense History List
-    st.subheader(f"📜 Expense History for {selected_outlet}")
-    history_df = db["expenses"][db["expenses"]["Outlet"] == selected_outlet].copy()
-    
-    if not history_df.empty:
-        # Format date for better reading
-        history_df['Date'] = pd.to_datetime(history_df['Date']).dt.date
-        # Sort by date (newest first)
-        history_df = history_df.sort_values(by="Date", ascending=False)
-        
-        # Display the list
-        st.dataframe(history_df[["Date", "Category", "Amount", "Notes"]], use_container_width=True, hide_index=True)
-        
-        # Quick Summary
-        total_exp = history_df["Amount"].sum()
-        st.info(f"**Total Expenses Logged for this Outlet:** ₹{round(total_exp, 2)}")
-    else:
-        st.info("No expenses recorded yet for this outlet.")
+# --- APP CONFIG ---
+st.set_page_config(page_title="Cloud K - Global Analytics", page_icon="☁️", layout="wide")
 
-# --- RECIPE MASTER ---
-elif menu == "Recipe Master":
-    st.title("👨‍🍳 Recipe Master")
-    items = db["inventory"][db["inventory"]["Outlet"] == selected_outlet]["Item"].unique()
-    if len(items) == 0: st.info("Add inventory first.")
-    else:
-        with st.form("rec"):
-            d = st.text_input("Dish Name")
-            s = st.multiselect("Select Ingredients", items)
-            recipe_map = {}
-            for i in s:
-                unit = db["inventory"][db["inventory"]["Item"] == i]["Unit"].iloc[0]
-                recipe_map[i] = st.number_input(f"{i} used ({unit})", min_value=0.0)
-            if st.form_submit_button("Save Recipe"):
-                db["recipes"][d] = recipe_map; st.success("Recipe Saved!")
+# --- DATABASE INITIALIZATION ---
+if 'db' not in st.session_state:
+    st.session_state.db = {
+        "outlets": ["The Home Plate", "No Cap Burgers", "Pocket Pizzaz", "Witx Sandwitx", "Hello Momos", "Khushi Breakfast Club", "Bihar ka Swad"],
+        "inventory": pd.DataFrame(columns=["id", "Outlet", "Item", "Qty", "Unit", "Total_Cost"]),
+        "recipes": {}, 
+        "menu_prices": {}, 
+        "outlet_configs": {},
+        "sales": pd.DataFrame(columns=["Date", "Outlet", "Dish", "Platform", "Revenue", "Comm_Paid", "Del_Cost", "Ing_Cost", "Net_Profit"]),
+        "expenses": pd.DataFrame(columns=["id", "Date", "Outlet", "Category", "Amount", "Notes"])
+    }
 
-# --- MENU PRICING ---
-elif menu == "Menu & Pricing":
-    st.title("💰 Set Selling Prices")
-    for dish in db["recipes"].keys():
-        db["menu_prices"][dish] = st.number_input(f"Price for {dish}", value=float(db["menu_prices"].get(dish, 0.0)))
-    if st.button("Save Prices"): st.success("Pricing Updated!")
+db = st.session_state.db
 
-# --- OUTLET & PLATFORM SETTINGS ---
-elif menu == "Outlet & Platform Settings":
-    st.title("⚙️ Configure Platforms")
-    p_name = st.text_input("Platform (e.g. Swiggy)")
-    p_comm = st.number_input("Commission %")
-    p_del = st.number_input("Platform Delivery Fee (₹)")
-    if st.button("Link Platform"):
-        if selected_outlet not in db["outlet_configs"]: db["outlet_configs"][selected_outlet] = {"Platforms": {}}
-        db["outlet_configs"][selected_outlet]["Platforms"][p_name] = {"comm": p_comm, "del": p_del}
-        st.success("Platform Configured!")
+# --- SIDEBAR ---
+st.sidebar.title("☁️ Cloud K Master Control")
+menu = st.sidebar.radio("Navigate", [
+    "Dashboard", "Sale Entry", "Misc Expenses", 
+    "Stock Room", "Recipe Master", "Menu & Pricing", "Outlet & Platform Settings"
+])
+
+selected_outlet = st.sidebar.selectbox("Active Outlet", db["outlets"])
+
