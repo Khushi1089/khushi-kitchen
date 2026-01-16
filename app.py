@@ -135,42 +135,47 @@ elif menu == "Sale Entry":
                 st.session_state.db["sales"] = pd.concat([db["sales"], new_row], ignore_index=True)
                 st.success(f"Profit of ₹{round(net_profit, 2)} recorded.")
 
-# --- 3. MISC EXPENSES (STRICTLY LOGGED BY DATE) ---
-elif menu == "Misc Expenses":
-    st.title(f"💸 Log Expense: {selected_outlet}")
-    with st.form("exp_form"):
-        cat = st.selectbox("Expense Category", ["Rent", "Salary", "Electricity", "Packaging", "Cleaning", "Marketing"])
-        amt = st.number_input("Amount (₹)", min_value=0.0)
-        exp_date = st.date_input("Date of Expense", datetime.now())
-        note = st.text_input("Notes")
-        if st.form_submit_button("Record Expense"):
-            new_e = pd.DataFrame([{"Date": exp_date, "Outlet": selected_outlet, "Category": cat, "Amount": amt, "Notes": note}])
-            st.session_state.db["expenses"] = pd.concat([db["expenses"], new_e], ignore_index=True)
-            st.success("Expense logged.")
-
-# (Remaining features: Stock Room, Recipe Master, Menu Pricing, and Settings remain identical for stability)
-# --- STOCK ROOM ---
-elif menu == "Stock Room":
-    st.title(f"📦 Inventory: {selected_outlet}")
-    with st.expander("Add Stock"):
-        with st.form("add_s"):
-            n = st.text_input("Item")
-            q = st.number_input("Qty", min_value=0.1)
-            u = st.selectbox("Unit", ["Grams", "Pieces", "Kg", "ML"])
-            c = st.number_input("Total Purchase Cost", min_value=0.0)
-            if st.form_submit_button("Add"):
-                new_r = pd.DataFrame([{"id": len(db["inventory"])+1, "Outlet": selected_outlet, "Item": n, "Qty": q, "Unit": u, "Total_Cost": c}])
-                st.session_state.db["inventory"] = pd.concat([db["inventory"], new_r], ignore_index=True)
+# --- 3. MISC EXPENSES (UPGRADED WITH HISTORY LIST) ---
+if menu == "Misc Expenses":
+    st.title(f"💸 Expense Ledger: {selected_outlet}")
+    
+    # Entry Form
+    with st.expander("➕ Add New Expense", expanded=True):
+        with st.form("exp_form", clear_on_submit=True):
+            c1, c2 = st.columns(2)
+            cat = c1.selectbox("Expense Category", ["Rent", "Salary", "Electricity", "Packaging", "Cleaning", "Marketing", "Maintenance", "Misc"])
+            amt = c2.number_input("Amount (₹)", min_value=0.0, step=10.0)
+            
+            c3, c4 = st.columns(2)
+            exp_date = c3.date_input("Date of Expense", datetime.now())
+            note = c4.text_input("Notes/Remarks (e.g. 'January Rent')")
+            
+            if st.form_submit_button("Record Expense"):
+                new_e = pd.DataFrame([{"Date": exp_date, "Outlet": selected_outlet, "Category": cat, "Amount": amt, "Notes": note}])
+                st.session_state.db["expenses"] = pd.concat([db["expenses"], new_e], ignore_index=True)
+                st.success(f"Recorded: ₹{amt} for {cat}")
                 st.rerun()
 
-    inv = db["inventory"][db["inventory"]["Outlet"] == selected_outlet]
-    for idx, r in inv.iterrows():
-        is_low = (r['Unit'] in ['Grams', 'ML'] and r['Qty'] < 500) or (r['Unit'] in ['Pieces', 'Kg'] and r['Qty'] < 10)
-        c1, c2 = st.columns([4, 1])
-        if is_low: c1.error(f"⚠️ {r['Item']}: {r['Qty']} {r['Unit']}")
-        else: c1.info(f"{r['Item']}: {r['Qty']} {r['Unit']}")
-        if c2.button("🗑️", key=f"d_{r['id']}"):
-            st.session_state.db["inventory"] = db["inventory"].drop(idx); st.rerun()
+    st.divider()
+    
+    # Expense History List
+    st.subheader(f"📜 Expense History for {selected_outlet}")
+    history_df = db["expenses"][db["expenses"]["Outlet"] == selected_outlet].copy()
+    
+    if not history_df.empty:
+        # Format date for better reading
+        history_df['Date'] = pd.to_datetime(history_df['Date']).dt.date
+        # Sort by date (newest first)
+        history_df = history_df.sort_values(by="Date", ascending=False)
+        
+        # Display the list
+        st.dataframe(history_df[["Date", "Category", "Amount", "Notes"]], use_container_width=True, hide_index=True)
+        
+        # Quick Summary
+        total_exp = history_df["Amount"].sum()
+        st.info(f"**Total Expenses Logged for this Outlet:** ₹{round(total_exp, 2)}")
+    else:
+        st.info("No expenses recorded yet for this outlet.")
 
 # --- RECIPE MASTER ---
 elif menu == "Recipe Master":
