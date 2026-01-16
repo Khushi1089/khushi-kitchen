@@ -132,7 +132,7 @@ elif menu == "Misc Expenses":
     else:
         st.info("No expenses found.")
 
-# --- 3. RECIPE MASTER & MENU CREATOR ---
+# --- 3. RECIPE MASTER & MENU CREATOR (UPDATED) ---
 elif menu == "Recipe Master":
     st.title("👨‍🍳 Recipe & Menu Builder")
     
@@ -141,16 +141,16 @@ elif menu == "Recipe Master":
     outlet_inventory = inv_df[inv_df["Outlet"] == selected_outlet]
     
     if outlet_inventory.empty:
-        st.warning("Your Stock Room is empty! Please add ingredients in the 'Stock Room' first to create recipes.")
+        st.warning(f"Your Stock Room for {selected_outlet} is empty! Please add ingredients in the 'Stock Room' first.")
     else:
         with st.form("recipe_builder_form", clear_on_submit=True):
             st.subheader("Create a New Dish")
             c1, c2 = st.columns(2)
-            new_dish = c1.text_input("Dish Name (e.g., Veg Burger)")
+            new_dish = c1.text_input("Dish Name (e.g., Paneer Tikka)")
             
-            # Multi-select ingredients directly from Stock Room
+            # Multi-select ingredients directly from Stock Room items
             selected_ings = st.multiselect(
-                "Select Ingredients for this Dish", 
+                "Select Ingredients from Stock", 
                 options=outlet_inventory["Item"].unique()
             )
             
@@ -160,50 +160,64 @@ elif menu == "Recipe Master":
             total_dish_cost = 0.0
             
             if selected_ings:
-                st.write("**Define Ingredient Quantities:**")
+                st.write("**Define Quantities Used (Pieces/Units):**")
                 # Create input rows for each selected ingredient
                 for ing in selected_ings:
                     # Get unit and cost data from inventory
                     ing_data = outlet_inventory[outlet_inventory["Item"] == ing].iloc[0]
                     unit = ing_data["Unit"]
-                    # Calculate cost per single unit (e.g., cost per 1kg or 1pcs)
+                    
+                    # Calculate cost per single unit/piece
+                    # Example: If 10kg costs ₹1000, then 1kg costs ₹100
                     cost_per_unit = ing_data["Total_Cost"] / ing_data["Qty"] if ing_data["Qty"] > 0 else 0
                     
                     col_a, col_b, col_c = st.columns([2, 2, 2])
-                    qty_needed = col_a.number_input(f"Amount of {ing} ({unit})", min_value=0.0, step=0.01, key=f"qty_{ing}")
+                    qty_needed = col_a.number_input(f"{ing} ({unit})", min_value=0.0, step=0.01, key=f"qty_{ing}")
                     col_b.write(f"Unit Cost: ₹{round(cost_per_unit, 2)}")
                     
                     # Track cost and mapping
                     item_total_cost = qty_needed * cost_per_unit
-                    col_c.write(f"Subtotal: ₹{round(item_total_cost, 2)}")
+                    col_c.write(f"Ingredient Subtotal: ₹{round(item_total_cost, 2)}")
                     
                     recipe_map[ing] = qty_needed
                     total_dish_cost += item_total_cost
                 
-                st.info(f"💡 Total Cost to make one {new_dish if new_dish else 'dish'}: **₹{round(total_dish_cost, 2)}**")
+                st.divider()
+                st.info(f"💡 **Total Production Cost: ₹{round(total_dish_cost, 2)}**")
                 
-                # Directly set Menu Price here
-                selling_price = st.number_input("Set Selling Price (₹)", min_value=0.0, step=1.0, help="What the customer pays.")
+                # Directly set Selling Price here
+                selling_price = st.number_input("Set Selling Price (₹)", min_value=0.0, step=1.0)
+                
+                # Margin Preview
+                if selling_price > 0:
+                    profit = selling_price - total_dish_cost
+                    margin = (profit / selling_price) * 100
+                    st.caption(f"Estimated Profit: ₹{round(profit, 2)} ({round(margin, 1)}% Margin)")
             
-            if st.form_submit_button("Save to Menu & Recipes"):
+            if st.form_submit_button("Save Dish to Menu"):
                 if new_dish and recipe_map:
-                    # Save Recipe
+                    # Save Recipe Structure
                     st.session_state.db["recipes"][new_dish] = recipe_map
-                    # Save Price to Menu
+                    # Save Price to Menu Prices Database
                     st.session_state.db["menu_prices"][new_dish] = selling_price
-                    st.success(f"✅ {new_dish} has been added to your Menu and Recipes!")
+                    st.success(f"✅ {new_dish} has been added to your Menu!")
                     st.rerun()
                 else:
-                    st.error("Please provide a Dish Name and at least one ingredient.")
+                    st.error("Please provide a Dish Name and select ingredients.")
 
     # --- LIST EXISTING RECIPES ---
     if st.session_state.db["recipes"]:
         st.divider()
         st.subheader("📜 Current Menu & Recipes")
         for dish, ings in st.session_state.db["recipes"].items():
-            with st.expander(f"🍴 {dish} — Price: ₹{st.session_state.db['menu_prices'].get(dish, 0)}"):
+            price = st.session_state.db['menu_prices'].get(dish, 0)
+            with st.expander(f"🍴 {dish} — Price: ₹{price}"):
                 for ing, amt in ings.items():
-                    st.write(f"- {ing}: {amt}")
+                    # Look up the unit for display
+                    unit_search = outlet_inventory[outlet_inventory["Item"] == ing]
+                    unit_text = unit_search["Unit"].iloc[0] if not unit_search.empty else ""
+                    st.write(f"- {ing}: {amt} {unit_text}")
+                
                 if st.button(f"Delete {dish}", key=f"del_dish_{dish}"):
                     del st.session_state.db["recipes"][dish]
                     if dish in st.session_state.db["menu_prices"]:
