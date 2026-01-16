@@ -92,12 +92,12 @@ if menu == "Dashboard":
         with st.expander("View Detailed Raw Data"):
             st.dataframe(final_stats.sort_values('Period', ascending=False))
 
-# --- 2. MISC EXPENSES (WITH DELETE FEATURE) ---
+# --- 2. MISC EXPENSES (UPDATED WORKING DELETE) ---
 elif menu == "Misc Expenses":
     st.title(f"💸 Expenses: {selected_outlet}")
     
-    # 1. Add Expense Form
-    with st.form("add_expense"):
+    # 1. Entry Form
+    with st.form("add_expense", clear_on_submit=True):
         c1, c2, c3 = st.columns(3)
         cat = c1.selectbox("Category", ["Rent", "Salary", "Electricity", "Marketing", "Misc"])
         amt = c2.number_input("Amount (₹)", min_value=0.0)
@@ -105,9 +105,10 @@ elif menu == "Misc Expenses":
         note = st.text_input("Notes")
         
         if st.form_submit_button("Record Expense"):
-            # Use timestamp as unique ID
-            new_id = datetime.now().strftime('%Y%m%d%H%M%S%f') 
+            # Create a unique ID and ensure date is a timestamp
+            new_id = datetime.now().strftime('%Y%m%d%H%M%S%f')
             new_date = pd.to_datetime(date_input)
+            
             new_e = pd.DataFrame([{
                 "id": new_id, 
                 "Date": new_date, 
@@ -116,46 +117,52 @@ elif menu == "Misc Expenses":
                 "Amount": amt, 
                 "Notes": note
             }])
-            st.session_state.db["expenses"] = pd.concat([db["expenses"], new_e], ignore_index=True)
-            st.success("Expense Recorded!")
+            
+            # Update the main database
+            st.session_state.db["expenses"] = pd.concat([st.session_state.db["expenses"], new_e], ignore_index=True)
+            st.success("Expense Recorded Successfully!")
             st.rerun()
 
-    # 2. Expense History & Deletion Logic
-    st.subheader("Manage History")
+    st.divider()
+    st.subheader("📜 Expense History")
+
+    # 2. History & Functional Delete
+    # We get the full dataframe and keep the index so we know exactly what to delete
+    exp_df = st.session_state.db["expenses"]
     
-    # Filter expenses for the active outlet
-    exp_list = db["expenses"][db["expenses"]["Outlet"] == selected_outlet].copy()
-    
-    if not exp_list.empty:
-        # Standardize dates for sorting
-        exp_list['Date'] = pd.to_datetime(exp_list['Date'])
-        exp_list = exp_list.sort_values(by="Date", ascending=False)
-        
-        # UI for Deletion
-        st.write("Select the expense(s) you want to remove:")
-        
-        # Display as Data Editor with Row Selection enabled
-        event = st.dataframe(
-            exp_list[["id", "Date", "Category", "Amount", "Notes"]],
-            use_container_width=True,
-            hide_index=True,
-            on_select="rerun",
-            selection_mode="single-row" # Change to "multi-row" to delete many at once
-        )
-        
-        # Handle Deletion
-        selected_rows = event.selection.rows
-        if selected_rows:
-            # Get the ID of the selected row
-            selected_id = exp_list.iloc[selected_rows[0]]["id"]
-            
-            if st.button(f"🗑️ Delete Selected Expense", type="primary"):
-                # Filter out the selected ID from the main database
-                st.session_state.db["expenses"] = st.session_state.db["expenses"][
-                    st.session_state.db["expenses"]["id"] != selected_id
-                ]
-                st.toast(f"Deleted expense ID: {selected_id}")
-                st.rerun()
+    # Filter for the current outlet
+    outlet_exp = exp_df[exp_df["Outlet"] == selected_outlet]
+
+    if not outlet_exp.empty:
+        # Sort by date (newest first)
+        outlet_exp = outlet_exp.sort_values(by="Date", ascending=False)
+
+        # Create table headers
+        h1, h2, h3, h4, h5 = st.columns([2, 2, 1.5, 3, 1])
+        h1.write("**Date**")
+        h2.write("**Category**")
+        h3.write("**Amount**")
+        h4.write("**Notes**")
+        h5.write("**Action**")
+
+        for idx, row in outlet_exp.iterrows():
+            with st.container():
+                col1, col2, col3, col4, col5 = st.columns([2, 2, 1.5, 3, 1])
+                
+                # Format date for display
+                disp_date = row['Date'].strftime('%d-%m-%Y') if isinstance(row['Date'], datetime) else str(row['Date'])
+                
+                col1.write(disp_date)
+                col2.write(row['Category'])
+                col3.write(f"₹{row['Amount']}")
+                col4.write(row['Notes'])
+                
+                # The Actual Delete Button
+                # We use the unique index 'idx' from the original dataframe
+                if col5.button("🗑️", key=f"del_{row['id']}"):
+                    st.session_state.db["expenses"] = st.session_state.db["expenses"].drop(idx)
+                    st.toast(f"Deleted {row['Category']} expense")
+                    st.rerun()
     else:
         st.info("No expenses found for this outlet.")
 
