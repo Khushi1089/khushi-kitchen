@@ -5,16 +5,18 @@ from datetime import datetime
 import io
 
 # --- APP CONFIG ---
-st.set_page_config(page_title="Cloud K - Professional ERP", page_icon="☁️", layout="wide")
+st.set_page_config(page_title="Cloud K - Global Analytics", page_icon="☁️", layout="wide")
 
-# --- DATABASE INITIALIZATION ---
+# --- DATA PERSISTENCE ---
 if 'db' not in st.session_state:
     st.session_state.db = {
         "outlets": ["The Home Plate", "No Cap Burgers", "Pocket Pizzaz", "Witx Sandwitx", "Hello Momos", "Khushi Breakfast Club", "Bihar ka Swad"],
-        "inventory": pd.DataFrame(columns=["id", "Outlet", "Item", "Qty", "Unit", "Total_Cost"]),
+        "inventory": pd.DataFrame(columns=["Outlet", "Item", "Qty", "Unit", "Total_Cost"]),
         "recipes": {}, 
         "menu_prices": {}, 
-        "outlet_configs": {},
+        "outlet_configs": {
+            "The Home Plate": {"Platforms": {"Direct": {"comm": 0.0, "del": 0.0}}}
+        },
         "sales": pd.DataFrame(columns=["Date", "Outlet", "Dish", "Platform", "Revenue", "Comm_Paid", "Del_Cost", "Ing_Cost", "Net_Profit"]),
         "expenses": pd.DataFrame(columns=["Date", "Outlet", "Category", "Amount", "Notes"])
     }
@@ -154,12 +156,46 @@ elif menu == "Sale Entry":
                 st.success("Sale Recorded!")
                 st.rerun()
 
-# --- 6. DASHBOARD ---
-elif menu == "Dashboard":
-    st.title(f"📊 Analytics: {selected_outlet}")
-    s_df = db["sales"][db["sales"]["Outlet"] == selected_outlet]
+# --- 6. MISC EXPENSES ---
+elif menu == "Misc Expenses":
+    st.title(f"💸 Expenses: {selected_outlet}")
+    with st.form("exp"):
+        cat = st.selectbox("Category", ["Rent", "Salary", "Electricity", "Other"])
+        amt = st.number_input("Amount")
+        if st.form_submit_button("Log Expense"):
+            new_exp = pd.DataFrame([{"Date": datetime.now(), "Outlet": selected_outlet, "Category": cat, "Amount": amt}])
+            st.session_state.db["expenses"] = pd.concat([db["expenses"], new_exp], ignore_index=True)
+
+# --- 7. DASHBOARD & ANALYTICS ---
+elif menu == "Dashboard & Analytics":
+    st.title(f"📊 {selected_outlet} Financial Engine")
+    
+    view = st.radio("Analytics Period", ["Monthly", "Yearly"], horizontal=True)
+    s_df = db["sales"][db["sales"]["Outlet"] == selected_outlet].copy()
+    e_df = db["expenses"][db["expenses"]["Outlet"] == selected_outlet].copy()
+    
     if not s_df.empty:
-        m1, m2 = st.columns(2)
-        m1.metric("Revenue", f"₹{s_df['Revenue'].sum()}")
-        m2.metric("Profit", f"₹{round(s_df['Net_Profit'].sum(), 2)}")
-        st.plotly_chart(px.bar(s_df.groupby(s_df['Date'].dt.date).sum().reset_index(), x='Date', y='Net_Profit'))
+        s_df['Date'] = pd.to_datetime(s_df['Date'])
+        format_str = '%Y-%m' if view == "Monthly" else '%Y'
+        s_df['Period'] = s_df['Date'].dt.strftime(format_str)
+        
+        stats = s_df.groupby('Period').agg({
+            'Revenue': 'sum', 'Comm_Paid': 'sum', 'Del_Cost': 'sum', 'Ing_Cost': 'sum', 'Net_Profit': 'sum'
+        }).reset_index()
+
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("Total Revenue", f"₹{stats['Revenue'].sum()}")
+        m2.metric("Total Profit", f"₹{round(stats['Net_Profit'].sum() - e_df['Amount'].sum(), 2)}")
+        m3.metric("Platform Fees", f"₹{stats['Comm_Paid'].sum() + stats['Del_Cost'].sum()}")
+        m4.metric("Expenses", f"₹{e_df['Amount'].sum()}")
+
+        st.plotly_chart(px.bar(stats, x='Period', y=['Revenue', 'Net_Profit'], barmode='group', title=f"{view} Sales vs Profit"))
+        
+        # EXCEL DOWNLOAD
+        buf = io.BytesIO()
+        with pd.ExcelWriter(buf, engine='xlsxwriter') as writer:
+            s_df.to_excel(writer, sheet_name='Sales')
+            e_df.to_excel(writer, sheet_name='Expenses')
+        st.download_button("📥 Export Yearly Report", buf, f"{selected_outlet}_Report.xlsx")
+    else:
+        st.info("Log your first sale to see analytics!")
