@@ -132,7 +132,55 @@ elif menu == "Misc Expenses":
     else:
         st.info("No expenses found.")
 
-# --- 3. SALE ENTRY ---
+# --- 3. RECIPE MASTER ---
+elif menu == "Recipe Master":
+    st.title("👨‍🍳 Recipe Builder")
+    available_items = db["inventory"][db["inventory"]["Outlet"] == selected_outlet]["Item"].unique()
+    
+    if len(available_items) == 0:
+        st.warning("Please add items to the Stock Room first.")
+    else:
+        with st.form("recipe_form"):
+            new_dish = st.text_input("Dish Name")
+            selected_ings = st.multiselect("Select Ingredients", available_items)
+            recipe_map = {}
+            for ing in selected_ings:
+                unit = db["inventory"][db["inventory"]["Item"] == ing]["Unit"].iloc[0]
+                recipe_map[ing] = st.number_input(f"Amount of {ing} ({unit})", min_value=0.0, key=f"recipe_{ing}")
+            
+            if st.form_submit_button("Create Recipe"):
+                if new_dish:
+                    st.session_state.db["recipes"][new_dish] = recipe_map
+                    st.success(f"Recipe for {new_dish} saved!")
+                st.rerun()
+
+# --- 4. MENU & PRICING ---
+elif menu == "Menu & Pricing":
+    st.title("💰 Menu Master")
+    if not db["recipes"]:
+        st.info("Create a Recipe first.")
+    else:
+        for dish in db["recipes"].keys():
+            current_price = db["menu_prices"].get(dish, 0.0)
+            db["menu_prices"][dish] = st.number_input(f"Selling Price: {dish} (₹)", value=float(current_price))
+        if st.button("Save Prices"):
+            st.success("Menu updated!")
+
+# --- 5. OUTLET & PLATFORM SETTINGS ---
+elif menu == "Outlet & Platform Settings":
+    st.title("⚙️ Outlet & Platform Config")
+    c1, c2 = st.columns(2)
+    with c1:
+        st.subheader("Link Platforms")
+        p_name = st.text_input("Platform Name")
+        p_comm = st.number_input("Commission %", min_value=0.0)
+        p_del = st.number_input("Delivery Fee (₹)", min_value=0.0)
+        if st.button("Add Platform"):
+            if selected_outlet not in db["outlet_configs"]: db["outlet_configs"][selected_outlet] = {"Platforms": {}}
+            db["outlet_configs"][selected_outlet]["Platforms"][p_name] = {"comm": p_comm, "del": p_del}
+            st.success("Linked!")
+
+# --- 6. SALE ENTRY ---
 elif menu == "Sale Entry":
     st.title("🎯 Record Sales")
     st.info("Ensure you have added Recipes and Inventory before logging sales.")
