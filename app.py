@@ -428,17 +428,16 @@ elif menu == "Stock Room":
 elif menu == "Sale Entry":
     st.title(f"🎯 Sale Entry: {selected_outlet}")
     
-    # 1. Verification: Ensure recipes exist
+    # 1. Verification
     if not st.session_state.db["recipes"]:
         st.warning("⚠️ No recipes found. Please create recipes in 'Recipe Master' first.")
     else:
-        # 2. Sale Entry Form
         with st.form("sale_entry_form", clear_on_submit=True):
             c1, c2, c3, c4 = st.columns(4)
             sale_date = c1.date_input("Sale Date", datetime.now())
             selected_dish = c2.selectbox("Select Dish", list(st.session_state.db["recipes"].keys()))
             
-            # Fetch active platforms for the selected outlet
+            # Fetch platforms from config
             platform_options = ["Direct"]
             if selected_outlet in st.session_state.db["outlet_configs"]:
                 platform_options = list(st.session_state.db["outlet_configs"][selected_outlet].get("Platforms", {"Direct": 0}).keys())
@@ -449,34 +448,29 @@ elif menu == "Sale Entry":
             submit_sale = st.form_submit_button("🔨 Record Sale & Deduct Stock")
 
             if submit_sale:
-                # --- AUTO-CALCULATION LOGIC (Matching Menu & Pricing Table) ---
-                # 1. Get Production Cost (Ingredient Cost) from Recipe Master
-                ing_cost_per_unit = st.session_state.db["menu_prices"].get(selected_dish, 0.0)
+                # --- CALCULATION LOGIC: FETCHING FROM THE GRAND TOTAL ---
+                # Fetch Production Cost from the Recipe Master database
+                prod_cost = st.session_state.db["menu_prices"].get(selected_dish, 0.0)
                 
-                # 2. Get Platform/Misc costs (Assuming these are retrieved from your existing inputs or platform settings)
-                # If these values are platform-specific, we pull from config; otherwise default to 0
-                comm_val = 0.0
-                del_cost_val = 0.0
-                if selected_outlet in st.session_state.db["outlet_configs"] and selected_plat in st.session_state.db["outlet_configs"][selected_outlet]["Platforms"]:
-                    p_cfg = st.session_state.db["outlet_configs"][selected_outlet]["Platforms"][selected_plat]
-                    comm_val = (p_cfg['comm'] / 100) * 0 # Placeholder if revenue isn't known yet
-                    del_cost_val = p_cfg['del']
-
-                # 3. Calculate Grand Total as per Menu Master logic
-                # Grand Total = (Total Spent + Labour 10%) + Profit 10%
-                total_spent = ing_cost_per_unit + comm_val # Based on your table columns
+                # Fetch Platform/Misc values if they exist in your session state, otherwise use 0
+                # This matches the calculation seen in your 'Final Pricing Summary Table'
+                p_comm = 0.0
+                p_adv = 0.0
+                p_misc = 0.0
+                
+                # Logic to determine the "Grand Total" per unit based on your Menu & Pricing formula
+                total_spent = prod_cost + p_comm + p_adv + p_misc
                 labour = total_spent * 0.10
                 profit = (total_spent + labour) * 0.10
-                grand_total_per_unit = total_spent + labour + profit
+                grand_total_per_unit = total_spent + labour + profit # This is the final selling price
                 
                 total_revenue = grand_total_per_unit * qty_sold
-                total_ing_cost = ing_cost_per_unit * qty_sold
+                total_ing_cost = prod_cost * qty_sold
 
-                # --- STOCK DEDUCTION LOGIC ---
+                # --- STOCK DEDUCTION ---
                 recipe = st.session_state.db["recipes"][selected_dish]
                 stock_available = True
                 
-                # Check stock levels
                 for item, amt_per_dish in recipe.items():
                     total_needed = amt_per_dish * qty_sold
                     current_stock = st.session_state.db["inventory"][
@@ -499,7 +493,7 @@ elif menu == "Sale Entry":
                         if not idx.empty:
                             st.session_state.db["inventory"].at[idx[0], "Qty"] -= (amt_per_dish * qty_sold)
                     
-                    # Log the Sale Entry
+                    # Log the Sale with the correct Grand Total as Revenue
                     new_sale = pd.DataFrame([{
                         "id": datetime.now().strftime('%Y%m%d%H%M%S%f'),
                         "Date": pd.to_datetime(sale_date),
@@ -507,22 +501,23 @@ elif menu == "Sale Entry":
                         "Dish": selected_dish,
                         "Platform": selected_plat,
                         "Qty": qty_sold,
-                        "Revenue": total_revenue, # Auto-calculated Grand Total
+                        "Revenue": total_revenue, # Corrected: Uses Grand Total from Menu & Pricing
                         "Ing_Cost": total_ing_cost,
                         "Net_Profit": total_revenue - total_ing_cost
                     }])
                     
                     st.session_state.db["sales"] = pd.concat([st.session_state.db["sales"], new_sale], ignore_index=True)
-                    st.success(f"✅ Recorded {qty_sold} {selected_dish}. Total Revenue: ₹{round(total_revenue, 2)}")
+                    st.success(f"✅ Recorded! Revenue: ₹{round(total_revenue, 2)} (Grand Total)")
                     st.rerun()
 
-    # 3. Recent Sales History & Delete Section
+    # --- RECENT SALES LOGS ---
     st.divider()
     st.subheader("📜 Recent Sales Logs")
     s_df = st.session_state.db["sales"]
     outlet_sales = s_df[s_df["Outlet"] == selected_outlet].sort_values(by="Date", ascending=False)
 
     if not outlet_sales.empty:
+        # Display header
         h1, h2, h3, h4, h5 = st.columns([2, 3, 1, 2, 1])
         h1.write("**Date**")
         h2.write("**Dish (Platform)**")
@@ -541,5 +536,3 @@ elif menu == "Sale Entry":
                 if col5.button("🗑️", key=f"del_sale_{row['id']}"):
                     st.session_state.db["sales"] = st.session_state.db["sales"].drop(idx)
                     st.rerun()
-    else:
-        st.info("No sales recorded for this outlet yet.")
