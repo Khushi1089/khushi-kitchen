@@ -92,10 +92,11 @@ if menu == "Dashboard":
         with st.expander("View Detailed Raw Data"):
             st.dataframe(final_stats.sort_values('Period', ascending=False))
 
-# --- 2. MISC EXPENSES (FIXED TYPEERROR & SORTING) ---
+# --- 2. MISC EXPENSES (WITH DELETE FEATURE) ---
 elif menu == "Misc Expenses":
     st.title(f"💸 Expenses: {selected_outlet}")
     
+    # 1. Add Expense Form
     with st.form("add_expense"):
         c1, c2, c3 = st.columns(3)
         cat = c1.selectbox("Category", ["Rent", "Salary", "Electricity", "Marketing", "Misc"])
@@ -104,20 +105,59 @@ elif menu == "Misc Expenses":
         note = st.text_input("Notes")
         
         if st.form_submit_button("Record Expense"):
-            # Store date as datetime to ensure sortability
+            # Use timestamp as unique ID
+            new_id = datetime.now().strftime('%Y%m%d%H%M%S%f') 
             new_date = pd.to_datetime(date_input)
-            new_id = datetime.now().strftime('%Y%m%d%H%M%S')
-            new_e = pd.DataFrame([{"id": new_id, "Date": new_date, "Outlet": selected_outlet, "Category": cat, "Amount": amt, "Notes": note}])
+            new_e = pd.DataFrame([{
+                "id": new_id, 
+                "Date": new_date, 
+                "Outlet": selected_outlet, 
+                "Category": cat, 
+                "Amount": amt, 
+                "Notes": note
+            }])
             st.session_state.db["expenses"] = pd.concat([db["expenses"], new_e], ignore_index=True)
+            st.success("Expense Recorded!")
             st.rerun()
 
-    st.subheader("History")
+    # 2. Expense History & Deletion Logic
+    st.subheader("Manage History")
+    
+    # Filter expenses for the active outlet
     exp_list = db["expenses"][db["expenses"]["Outlet"] == selected_outlet].copy()
+    
     if not exp_list.empty:
-        # Convert to datetime before sorting to prevent TypeError
+        # Standardize dates for sorting
         exp_list['Date'] = pd.to_datetime(exp_list['Date'])
         exp_list = exp_list.sort_values(by="Date", ascending=False)
-        st.dataframe(exp_list[["Date", "Category", "Amount", "Notes"]], use_container_width=True)
+        
+        # UI for Deletion
+        st.write("Select the expense(s) you want to remove:")
+        
+        # Display as Data Editor with Row Selection enabled
+        event = st.dataframe(
+            exp_list[["id", "Date", "Category", "Amount", "Notes"]],
+            use_container_width=True,
+            hide_index=True,
+            on_select="rerun",
+            selection_mode="single-row" # Change to "multi-row" to delete many at once
+        )
+        
+        # Handle Deletion
+        selected_rows = event.selection.rows
+        if selected_rows:
+            # Get the ID of the selected row
+            selected_id = exp_list.iloc[selected_rows[0]]["id"]
+            
+            if st.button(f"🗑️ Delete Selected Expense", type="primary"):
+                # Filter out the selected ID from the main database
+                st.session_state.db["expenses"] = st.session_state.db["expenses"][
+                    st.session_state.db["expenses"]["id"] != selected_id
+                ]
+                st.toast(f"Deleted expense ID: {selected_id}")
+                st.rerun()
+    else:
+        st.info("No expenses found for this outlet.")
 
 # --- 3. SALE ENTRY ---
 elif menu == "Sale Entry":
