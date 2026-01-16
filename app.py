@@ -132,23 +132,23 @@ elif menu == "Misc Expenses":
     else:
         st.info("No expenses found.")
 
-# --- 3. RECIPE MASTER (PIECE-BASED COSTING) ---
+# --- 3. RECIPE MASTER (RE-ENGINEERED FOR PIECE-COSTING) ---
 elif menu == "Recipe Master":
     st.title("👨‍🍳 Recipe Builder")
     
-    # Fetch inventory for the active outlet
+    # 1. Fetch inventory for the active outlet
     inv_df = st.session_state.db["inventory"]
     outlet_stock = inv_df[inv_df["Outlet"] == selected_outlet]
 
     if outlet_stock.empty:
-        st.warning(f"⚠️ Stock Room is empty for '{selected_outlet}'. Add items there first.")
+        st.warning(f"⚠️ Stock Room is empty for '{selected_outlet}'. Please add items in the 'Stock Room' first.")
     else:
         # Create a lookup for cost per single piece/unit
-        stock_costs = {}
+        stock_lookup = {}
         for _, row in outlet_stock.iterrows():
             # Calculate: Unit Cost = Total Cost / Quantity
             u_cost = row['Total_Cost'] / row['Qty'] if row['Qty'] > 0 else 0
-            stock_costs[row['Item']] = {
+            stock_lookup[row['Item']] = {
                 'unit_cost': u_cost,
                 'unit_type': row['Unit']
             }
@@ -160,42 +160,41 @@ elif menu == "Recipe Master":
             # Select ingredients from items currently in stock
             selected_ings = st.multiselect(
                 "Select Ingredients from Stock", 
-                options=list(stock_costs.keys())
+                options=list(stock_lookup.keys())
             )
             
             st.divider()
             
-            recipe_data = {}
+            recipe_map = {}
             total_production_cost = 0.0
             
             if selected_ings:
-                st.write("**Specify Amount Used per Dish:**")
+                st.write("**Specify Pieces/Amount Used per Dish:**")
                 for ing in selected_ings:
-                    u_price = stock_costs[ing]['unit_cost']
-                    u_type = stock_costs[ing]['unit_type']
+                    u_price = stock_lookup[ing]['unit_cost']
+                    u_type = stock_lookup[ing]['unit_type']
                     
                     c1, c2, c3 = st.columns([3, 2, 2])
                     
                     # User enters how many pieces/units are used
                     qty_used = c1.number_input(f"Amount of {ing} ({u_type})", min_value=0.0, step=0.01, key=f"rec_{ing}")
                     
-                    # Calculation of individual item cost
+                    # Logic: Subtotal = Amount Used * (Total Cost / Stock Qty)
                     item_cost = qty_used * u_price
                     
                     c2.write(f"Cost per {u_type}: ₹{round(u_price, 2)}")
-                    c3.write(f"Total: ₹{round(item_cost, 2)}")
+                    c3.write(f"Subtotal: ₹{round(item_cost, 2)}")
                     
-                    recipe_data[ing] = qty_used
+                    recipe_map[ing] = qty_used
                     total_production_cost += item_cost
                 
                 st.divider()
                 st.success(f"💰 **Total Ingredient Cost for this Dish: ₹{round(total_production_cost, 2)}**")
 
             if st.form_submit_button("Save Recipe"):
-                if dish_name and recipe_data:
+                if dish_name and recipe_map:
                     # Save the recipe and the calculated production cost
-                    st.session_state.db["recipes"][dish_name] = recipe_data
-                    # We store the production cost in menu_prices for reference, even without selling price
+                    st.session_state.db["recipes"][dish_name] = recipe_map
                     st.session_state.db["menu_prices"][dish_name] = total_production_cost
                     st.success(f"✅ Recipe for {dish_name} saved!")
                     st.rerun()
@@ -210,7 +209,11 @@ elif menu == "Recipe Master":
             cost = st.session_state.db["menu_prices"].get(dish, 0)
             with st.expander(f"🍴 {dish} — Production Cost: ₹{round(cost, 2)}"):
                 for item, amount in ingredients.items():
-                    st.write(f"- {item}: {amount}")
+                    # Find unit name for display
+                    unit_info = outlet_stock[outlet_stock["Item"] == item]
+                    unit_disp = unit_info["Unit"].iloc[0] if not unit_info.empty else "units"
+                    st.write(f"- {item}: {amount} {unit_disp}")
+                
                 if st.button(f"Delete {dish}", key=f"rm_{dish}"):
                     del st.session_state.db["recipes"][dish]
                     if dish in st.session_state.db["menu_prices"]:
